@@ -184,7 +184,8 @@ if st.sidebar.button("Generar Link para Guardar y Compartir"):
     if st.session_state.eventos and db:
         sesion_id = guardar_sesion(db, st.session_state.eventos)
         if sesion_id:
-            st.query_params.set(sesion=sesion_id) # Actualiza la URL con el ID de la sesión
+            # LA CORRECCIÓN ESTÁ AQUÍ: Se usa la sintaxis de diccionario.
+            st.query_params["sesion"] = sesion_id
             st.sidebar.success("¡Sesión guardada! Copiá y guardá este link:")
             st.sidebar.code(f"{st.get_option('server.baseUrlPath')}?sesion={sesion_id}", language=None)
     elif not st.session_state.eventos:
