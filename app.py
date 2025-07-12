@@ -6,7 +6,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import uuid
 
-# --- CLASE DE LA CALCULADORA (CON VALIDACIÓN DE TASAS NEGATIVAS) ---
+# --- CLASE DE LA CALCULADORA (SIN CAMBIOS) ---
 class CalculadoraInteresVariable:
     """Calculadora de interés compuesto con tasas y transacciones variables."""
     def __init__(self, capital_inicial: float, fecha_inicio: date):
@@ -25,7 +25,6 @@ class CalculadoraInteresVariable:
     
     def calcular(self, fecha_final: date) -> (float, list, pd.DataFrame):
         historial_texto, datos_grafico = [], {'fecha': [], 'saldo': []}
-        # Ordenar eventos por fecha y luego por tipo (transacciones antes que cambios de tasa)
         self._eventos.sort(key=lambda x: (x[0], x[1] == 'cambio_tasa'))
         saldo_actual, fecha_actual, tasa_actual = self.capital_inicial, self.fecha_inicio, self._obtener_tasa_inicial()
         historial_texto.append(f"[{fecha_actual}] Inicio: ${saldo_actual:,.2f} | Tasa: {tasa_actual:.2%}")
@@ -56,14 +55,13 @@ class CalculadoraInteresVariable:
                 tasa_actual = valor
                 historial_texto.append(f"[{fecha_actual}] Cambio Tasa: {tasa_actual:.2%}")
         df_grafico = pd.DataFrame(datos_grafico).drop_duplicates('fecha', keep='last').sort_values('fecha')
-        df_grafico['fecha'] = pd.to_datetime(df_grafico['fecha']) # Asegurar formato datetime
+        df_grafico['fecha'] = pd.to_datetime(df_grafico['fecha'])
         return saldo_final, historial_texto, df_grafico
 
-# --- CONEXIÓN A FIREBASE Y FUNCIONES DE LA DB ---
+# --- CONEXIÓN A FIREBASE Y FUNCIONES DE LA DB (SIN CAMBIOS) ---
 def init_firestore():
     """Inicializa la conexión con Firestore usando los secrets de Streamlit."""
     try:
-        # LA CORRECCIÓN ESTÁ AQUÍ: Convertimos explícitamente a un dict.
         creds_dict = dict(st.secrets["firebase_credentials"])
         creds = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(creds)
@@ -82,13 +80,8 @@ def guardar_sesion(db, eventos):
         st.warning("No hay eventos para guardar.")
         return None
     try:
-        sesion_id = str(uuid.uuid4().hex[:10]) # ID más corto
-        eventos_serializados = []
-        for e in eventos:
-            if not isinstance(e['Fecha'], date):
-                st.error(f"Error: Fecha inválida en evento {e}")
-                return None
-            eventos_serializados.append({**e, 'Fecha': e['Fecha'].isoformat()})
+        sesion_id = str(uuid.uuid4().hex[:10])
+        eventos_serializados = [{**e, 'Fecha': e['Fecha'].isoformat()} for e in eventos]
         doc_ref = db.collection('sesiones').document(sesion_id)
         doc_ref.set({'eventos': eventos_serializados})
         return sesion_id
@@ -122,8 +115,17 @@ def cargar_sesion(db, sesion_id):
 # --- INICIALIZACIÓN DE LA APP Y LA UI ---
 db = init_firestore()
 
-st.set_page_config(layout="wide", page_title="Calculadora de Inversión")
-st.title("📊 Calculadora de Inversión con Interés Compuesto Variable")
+# --- MEJORA DE DISEÑO: Configuración de la página ---
+st.set_page_config(
+    page_title="Calculadora de Inversión",
+    page_icon="💰",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# --- MEJORA DE DISEÑO: Título y bienvenida ---
+st.title("💰 Calculadora de Inversión Avanzada")
+st.markdown("Simulá el rendimiento de tus inversiones con tasas variables, depósitos y extracciones.")
 
 # Lógica para cargar datos desde la URL o iniciar una sesión vacía
 if 'eventos' not in st.session_state:
@@ -138,118 +140,143 @@ if 'eventos' not in st.session_state:
         st.session_state.eventos = []
 
 # --- Columnas principales de la UI ---
-col1, col2 = st.columns([1, 2])
-with col1:
-    st.header("1. Datos Iniciales")
-    capital_inicial = st.number_input("Capital Inicial ($)", min_value=0.0, value=1000000.0, step=50000.0, format="%.2f")
-    fecha_inicio = st.date_input("Fecha de Inicio", value=date.today() - timedelta(days=180))
-    fecha_final = st.date_input("Fecha Final del Cálculo", value=date.today())
-    
-    # Validación de fechas inicial y final
-    if fecha_final < fecha_inicio:
-        st.error("La fecha final debe ser posterior o igual a la fecha de inicio.")
-        st.stop()
+col1, col2 = st.columns([1, 1.5], gap="large")
 
-    st.header("2. Agregar Nuevo Evento")
-    with st.form("form_nuevo_evento", clear_on_submit=True):
-        tipo_evento = st.selectbox("Tipo de Evento", ["Cambio de Tasa", "Transacción (Depósito/Extracción)"])
-        fecha_evento = st.date_input("Fecha del Evento", value=date.today())
-        # Validación de fecha del evento
-        if fecha_evento < fecha_inicio:
-            st.error("La fecha del evento no puede ser anterior a la fecha de inicio.")
+with col1:
+    # --- MEJORA DE DISEÑO: Contenedor para agrupar ---
+    with st.container(border=True):
+        st.header("1. 💵 Datos Iniciales")
+        capital_inicial = st.number_input("Capital Inicial ($)", min_value=0.0, value=1000000.0, step=50000.0, format="%.2f")
+        col_fechas1, col_fechas2 = st.columns(2)
+        fecha_inicio = col_fechas1.date_input("Fecha de Inicio", value=date.today() - timedelta(days=180))
+        fecha_final = col_fechas2.date_input("Fecha Final del Cálculo", value=date.today())
+        
+        if fecha_final < fecha_inicio:
+            st.error("La fecha final debe ser posterior o igual a la fecha de inicio.")
             st.stop()
-        if tipo_evento == "Cambio de Tasa":
-            valor_evento = st.number_input("Nueva Tasa Anual (ej: 0.40 para 40%)", min_value=0.0, value=0.40, step=0.01, format="%.2f")
-            tipo_interno = 'cambio_tasa'
-        else:
-            valor_evento = st.number_input("Monto de la Transacción ($)", value=0.0, step=10000.0, format="%.2f", help="Usa un valor positivo para depósitos y negativo para extracciones.")
-            tipo_interno = 'transaccion'
-        if st.form_submit_button("➕ Agregar Evento"):
-            nuevo_id = max([e.get('ID', 0) for e in st.session_state.eventos] + [0]) + 1
-            st.session_state.eventos.append({"ID": nuevo_id, "Fecha": fecha_evento, "Tipo": tipo_evento, "Valor": valor_evento, "_tipo_interno": tipo_interno})
-            st.rerun()
+
+    with st.container(border=True):
+        st.header("2. 🗓️ Agregar Nuevo Evento")
+        with st.form("form_nuevo_evento", clear_on_submit=True):
+            tipo_evento = st.selectbox("Tipo de Evento", ["Cambio de Tasa", "Transacción (Depósito/Extracción)"])
+            fecha_evento = st.date_input("Fecha del Evento", value=date.today())
+            if fecha_evento < fecha_inicio:
+                st.error("La fecha del evento no puede ser anterior a la fecha de inicio.", icon="⚠️")
+                st.stop()
+            if tipo_evento == "Cambio de Tasa":
+                valor_evento = st.number_input("Nueva Tasa Anual (ej: 0.40 para 40%)", min_value=0.0, value=0.40, step=0.01, format="%.2f")
+                tipo_interno = 'cambio_tasa'
+            else:
+                valor_evento = st.number_input("Monto de la Transacción ($)", value=0.0, step=10000.0, format="%.2f", help="Usa un valor positivo para depósitos y negativo para extracciones.")
+                tipo_interno = 'transaccion'
+            if st.form_submit_button("➕ Agregar Evento", use_container_width=True):
+                nuevo_id = max([e.get('ID', 0) for e in st.session_state.eventos] + [0]) + 1
+                st.session_state.eventos.append({"ID": nuevo_id, "Fecha": fecha_evento, "Tipo": tipo_evento, "Valor": valor_evento, "_tipo_interno": tipo_interno})
+                st.rerun()
 
 with col2:
-    st.header("Eventos Registrados")
-    if st.session_state.eventos:
-        eventos_ordenados = sorted(st.session_state.eventos, key=lambda x: x['Fecha'])
-        df_eventos = pd.DataFrame(eventos_ordenados).drop(columns=['_tipo_interno', 'ID'])
-        st.dataframe(df_eventos, use_container_width=True)
-    else:
-        st.info("Aún no has agregado ningún evento.")
+    with st.container(border=True):
+        st.header("📋 Eventos Registrados")
+        if st.session_state.eventos:
+            eventos_ordenados = sorted(st.session_state.eventos, key=lambda x: x['Fecha'])
+            df_eventos = pd.DataFrame(eventos_ordenados).drop(columns=['_tipo_interno', 'ID'])
+            st.dataframe(df_eventos, use_container_width=True, hide_index=True)
+        else:
+            st.info("Aún no has agregado ningún evento.")
 
 # --- BARRA LATERAL ---
-st.sidebar.header("💾 Guardar Sesión en la Nube")
-if st.sidebar.button("Generar Link para Guardar y Compartir"):
-    if st.session_state.eventos and db:
-        sesion_id = guardar_sesion(db, st.session_state.eventos)
-        if sesion_id:
-            # LA CORRECCIÓN ESTÁ AQUÍ: Se usa la sintaxis de diccionario.
-            st.query_params["sesion"] = sesion_id
-            st.sidebar.success("¡Sesión guardada! Copiá y guardá este link:")
-            st.sidebar.code(f"{st.get_option('server.baseUrlPath')}?sesion={sesion_id}", language=None)
-    elif not st.session_state.eventos:
-        st.sidebar.warning("Agrega al menos un evento para guardar.")
-    else:
-        st.sidebar.error("Error de conexión con la base de datos.")
+with st.sidebar:
+    st.header("💾 Guardar Sesión")
+    if st.button("Generar Link para Compartir", use_container_width=True):
+        if st.session_state.eventos and db:
+            sesion_id = guardar_sesion(db, st.session_state.eventos)
+            if sesion_id:
+                st.query_params["sesion"] = sesion_id
+                st.success("¡Link generado! Copialo y guardalo.")
+                st.code(f"{st.get_option('server.baseUrlPath')}?sesion={sesion_id}", language=None)
+        elif not st.session_state.eventos:
+            st.warning("Agrega al menos un evento para guardar.")
+        else:
+            st.error("Error de conexión con la DB.")
 
-st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Editar o Eliminar Evento")
-if st.session_state.eventos:
-    opciones_eventos = {f"ID {e['ID']}: {e['Tipo']} el {e['Fecha']}": e['ID'] for e in st.session_state.eventos}
-    id_seleccionado = st.sidebar.selectbox("Selecciona un evento para modificar", options=opciones_eventos.keys())
-    evento_a_editar = next((e for e in st.session_state.eventos if e['ID'] == opciones_eventos[id_seleccionado]), None)
-    if evento_a_editar:
-        with st.sidebar.form("form_editar_evento"):
-            st.write(f"**Editando Evento ID {evento_a_editar['ID']}**")
-            nueva_fecha = st.date_input("Nueva Fecha", value=evento_a_editar['Fecha'])
-            # Validación de nueva fecha
-            if nueva_fecha < fecha_inicio:
-                st.error("La nueva fecha no puede ser anterior a la fecha de inicio.")
-                st.stop()
-            if evento_a_editar['_tipo_interno'] == 'cambio_tasa':
-                nuevo_valor = st.number_input("Nuevo Valor de Tasa", min_value=0.0, value=evento_a_editar['Valor'], format="%.2f")
-            else:
-                nuevo_valor = st.number_input("Nuevo Monto de Transacción", value=evento_a_editar['Valor'], format="%.2f")
-            col_edit, col_del = st.columns(2)
-            if col_edit.form_submit_button("💾 Guardar Cambios"):
-                evento_a_editar['Fecha'], evento_a_editar['Valor'] = nueva_fecha, nuevo_valor
-                st.rerun()
-            if col_del.form_submit_button("🗑️ Eliminar Evento"):
-                st.session_state.eventos = [e for e in st.session_state.eventos if e['ID'] != evento_a_editar['ID']]
-                st.rerun()
-else:
-    st.sidebar.info("Agrega un evento para poder editarlo.")
+    st.markdown("---")
+    st.header("⚙️ Editar / Eliminar")
+    if st.session_state.eventos:
+        # Formato mejorado para el selector
+        opciones_eventos = {f"ID {e['ID']}: {e['Tipo']} ({e['Fecha']})": e['ID'] for e in st.session_state.eventos}
+        id_seleccionado = st.selectbox("Selecciona un evento", options=opciones_eventos.keys(), label_visibility="collapsed")
+        evento_a_editar = next((e for e in st.session_state.eventos if e['ID'] == opciones_eventos[id_seleccionado]), None)
+        if evento_a_editar:
+            with st.form("form_editar_evento"):
+                st.write(f"**Editando Evento ID {evento_a_editar['ID']}**")
+                nueva_fecha = st.date_input("Nueva Fecha", value=evento_a_editar['Fecha'])
+                if nueva_fecha < fecha_inicio:
+                    st.error("La fecha no puede ser anterior al inicio.")
+                    st.stop()
+                if evento_a_editar['_tipo_interno'] == 'cambio_tasa':
+                    nuevo_valor = st.number_input("Nuevo Valor de Tasa", min_value=0.0, value=evento_a_editar['Valor'], format="%.2f")
+                else:
+                    nuevo_valor = st.number_input("Nuevo Monto", value=evento_a_editar['Valor'], format="%.2f")
+                
+                col_edit, col_del = st.columns(2)
+                if col_edit.form_submit_button("💾 Guardar", use_container_width=True):
+                    evento_a_editar['Fecha'], evento_a_editar['Valor'] = nueva_fecha, nuevo_valor
+                    st.rerun()
+                if col_del.form_submit_button("🗑️ Eliminar", use_container_width=True):
+                    st.session_state.eventos = [e for e in st.session_state.eventos if e['ID'] != evento_a_editar['ID']]
+                    st.rerun()
+    else:
+        st.info("Agrega eventos para poder editarlos.")
 
 # --- BOTÓN DE CÁLCULO Y GRÁFICO ---
 st.markdown("---")
-if st.button("🚀 Calcular y Graficar", type="primary", use_container_width=True):
+if st.button("🚀 Calcular y Graficar Simulación", type="primary", use_container_width=True):
+    if not st.session_state.eventos:
+        st.warning("Por favor, agrega al menos un evento para poder calcular.")
+        st.stop()
     try:
         calc = CalculadoraInteresVariable(capital_inicial, fecha_inicio)
         for ev in st.session_state.eventos:
             calc.agregar_evento(ev['Fecha'], ev['_tipo_interno'], ev['Valor'])
         saldo_final, historial, df_grafico = calc.calcular(fecha_final)
-        st.header("📈 Resultados de la Simulación")
-        st.metric("Saldo Final", f"${saldo_final:,.2f}")
-        fig = px.line(df_grafico, x='fecha', y='saldo', title="Evolución del Saldo de la Inversión", labels={'fecha': 'Fecha', 'saldo': 'Saldo ($)'})
-        fig.update_traces(hovertemplate='<b>%{x|%d %b %Y}</b><br>Saldo: $%{y:,.2f}')
-        for ev in st.session_state.eventos:
-            fecha_evento_dt = pd.to_datetime(ev['Fecha'])
-            if fecha_inicio <= ev['Fecha'] <= fecha_final and not df_grafico[df_grafico['fecha'] == fecha_evento_dt].empty:
-                simbolo = "triangle-up" if ev['_tipo_interno'] == 'transaccion' and ev['Valor'] > 0 else "triangle-down"
-                if ev['_tipo_interno'] == 'cambio_tasa':
-                    simbolo = "circle"
-                color = "green" if ev['_tipo_interno'] == 'transaccion' and ev['Valor'] > 0 else "red"
-                if ev['_tipo_interno'] == 'cambio_tasa':
-                    color = "orange"
-                saldo_en_fecha = df_grafico[df_grafico['fecha'] == fecha_evento_dt]['saldo'].iloc[0]
-                fig.add_scatter(x=[ev['Fecha']], y=[saldo_en_fecha], mode='markers',
-                                marker=dict(symbol=simbolo, color=color, size=10, line=dict(width=1, color='DarkSlateGrey')),
-                                name=f"{ev['Tipo']}: {ev['Valor']}",
-                                hovertemplate=f"<b>{ev['Fecha']:%d %b %Y}</b><br>{ev['Tipo']}<br>Valor: {ev['Valor']:,}")
-        st.plotly_chart(fig, use_container_width=True)
-        with st.expander("Ver historial de cálculo detallado"):
-            st.text("\n".join(historial))
+
+        # --- MEJORA DE DISEÑO: Contenedor para resultados ---
+        with st.container(border=True):
+            st.header("📈 Resultados de la Simulación")
+            
+            # --- MEJORA DE DISEÑO: Métrica destacada ---
+            st.metric("Saldo Final Calculado", f"${saldo_final:,.2f}", f"${(saldo_final - capital_inicial):,.2f} de ganancia")
+
+            # --- MEJORA DE DISEÑO: Gráfico con tema oscuro y mejorado ---
+            fig = px.line(df_grafico, x='fecha', y='saldo', title="Evolución del Saldo de la Inversión", template="plotly_dark")
+            fig.update_traces(hovertemplate='<b>%{x|%d %b %Y}</b><br>Saldo: $%{y:,.2f}')
+            fig.update_layout(
+                xaxis_title="Línea de Tiempo",
+                yaxis_title="Saldo en Pesos ($)",
+                font=dict(family="Arial, sans-serif", size=12, color="white"),
+                plot_bgcolor='rgba(0,0,0,0.3)',
+                paper_bgcolor='rgba(0,0,0,0)'
+            )
+            
+            # Agrega marcadores para los eventos en el gráfico
+            for ev in st.session_state.eventos:
+                fecha_evento_dt = pd.to_datetime(ev['Fecha'])
+                if fecha_inicio <= ev['Fecha'] <= fecha_final and not df_grafico[df_grafico['fecha'] == fecha_evento_dt].empty:
+                    simbolo = "triangle-up-dot" if ev['_tipo_interno'] == 'transaccion' and ev['Valor'] > 0 else "triangle-down-dot"
+                    if ev['_tipo_interno'] == 'cambio_tasa': simbolo = "circle-dot"
+                    color = "lightgreen" if ev['_tipo_interno'] == 'transaccion' and ev['Valor'] > 0 else "salmon"
+                    if ev['_tipo_interno'] == 'cambio_tasa': color = "gold"
+                    saldo_en_fecha = df_grafico[df_grafico['fecha'] == fecha_evento_dt]['saldo'].iloc[0]
+                    fig.add_scatter(x=[ev['Fecha']], y=[saldo_en_fecha], mode='markers',
+                                    marker=dict(symbol=simbolo, color=color, size=12, line=dict(width=1.5, color='white')),
+                                    name=f"{ev['Tipo']}: {ev['Valor']}",
+                                    hovertemplate=f"<b>{ev['Fecha']:%d %b %Y}</b><br>{ev['Tipo']}<br>Valor: {ev['Valor']:,}")
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            with st.expander("Ver historial de cálculo detallado"):
+                st.text("\n".join(historial))
+
     except ValueError as e:
         st.error(f"⚠️ **Error de Configuración:** {e} Por favor, agregá un evento de 'Cambio de Tasa' que cubra la 'Fecha de Inicio'.")
     except Exception as e:
