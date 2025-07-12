@@ -6,9 +6,9 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import uuid
 
-# --- CLASE DE LA CALCULADORA (SIN CAMBIOS) ---
+# --- CLASE DE LA CALCULADORA (MODIFICADA PARA DESGLOSAR CAPITAL E INTERESES) ---
 class CalculadoraInteresVariable:
-    """Calculadora de interés compuesto con tasas y transacciones variables."""
+    """Calculadora de interés compuesto que desglosa capital e intereses."""
     def __init__(self, capital_inicial: float, fecha_inicio: date):
         self.capital_inicial, self.fecha_inicio, self._eventos = capital_inicial, fecha_inicio, []
     
@@ -24,43 +24,65 @@ class CalculadoraInteresVariable:
         return max(tasas_validas, key=lambda x: x[0])[2]
     
     def calcular(self, fecha_final: date) -> (float, list, pd.DataFrame):
-        historial_texto, datos_grafico = [], {'fecha': [], 'saldo': []}
+        historial_texto = []
+        # Columnas para el nuevo desglose
+        datos_grafico = {'fecha': [], 'saldo_total': [], 'capital_aportado': [], 'interes_ganado': []}
+        
         self._eventos.sort(key=lambda x: (x[0], x[1] == 'cambio_tasa'))
-        saldo_actual, fecha_actual, tasa_actual = self.capital_inicial, self.fecha_inicio, self._obtener_tasa_inicial()
-        historial_texto.append(f"[{fecha_actual}] Inicio: ${saldo_actual:,.2f} | Tasa: {tasa_actual:.2%}")
+        
+        # Variables para el desglose
+        capital_actual = self.capital_inicial
+        interes_acumulado = 0.0
+        saldo_total = self.capital_inicial
+        
+        fecha_actual, tasa_actual = self.fecha_inicio, self._obtener_tasa_inicial()
+        
+        historial_texto.append(f"[{fecha_actual}] Inicio: ${saldo_total:,.2f} | Tasa: {tasa_actual:.2%}")
         datos_grafico['fecha'].append(fecha_actual)
-        datos_grafico['saldo'].append(saldo_actual)
+        datos_grafico['saldo_total'].append(saldo_total)
+        datos_grafico['capital_aportado'].append(capital_actual)
+        datos_grafico['interes_ganado'].append(interes_acumulado)
+
         eventos_a_procesar = self._eventos + [(fecha_final, 'fin_calculo', 0)]
         for fecha_evento, tipo_evento, valor in eventos_a_procesar:
             if fecha_evento > fecha_actual:
                 dias = (fecha_evento - fecha_actual).days
                 tasa_diaria = tasa_actual / 365
                 for i in range(dias):
-                    saldo_actual *= (1 + tasa_diaria)
+                    interes_diario = saldo_total * tasa_diaria
+                    interes_acumulado += interes_diario
+                    saldo_total += interes_diario
+                    
                     fecha_diaria = fecha_actual + timedelta(days=i + 1)
-                    if fecha_diaria > fecha_final:
-                        break
+                    if fecha_diaria > fecha_final: break
+                    
                     datos_grafico['fecha'].append(fecha_diaria)
-                    datos_grafico['saldo'].append(saldo_actual)
+                    datos_grafico['saldo_total'].append(saldo_total)
+                    datos_grafico['capital_aportado'].append(capital_actual)
+                    datos_grafico['interes_ganado'].append(interes_acumulado)
+
             fecha_actual = fecha_evento
-            if fecha_actual > fecha_final:
-                break
+            if fecha_actual > fecha_final: break
+
             if tipo_evento == 'transaccion':
-                saldo_actual += valor
+                saldo_total += valor
+                capital_actual += valor # El capital aportado cambia aquí
                 op_str = "Depósito" if valor > 0 else "Extracción"
-                historial_texto.append(f"[{fecha_actual}] {op_str}: ${abs(valor):,.2f} | Saldo: ${saldo_actual:,.2f}")
+                historial_texto.append(f"[{fecha_actual}] {op_str}: ${abs(valor):,.2f} | Saldo: ${saldo_total:,.2f}")
                 datos_grafico['fecha'].append(fecha_actual)
-                datos_grafico['saldo'].append(saldo_actual)
+                datos_grafico['saldo_total'].append(saldo_total)
+                datos_grafico['capital_aportado'].append(capital_actual)
+                datos_grafico['interes_ganado'].append(interes_acumulado)
             elif tipo_evento == 'cambio_tasa':
                 tasa_actual = valor
                 historial_texto.append(f"[{fecha_actual}] Cambio Tasa: {tasa_actual:.2%}")
+        
         df_grafico = pd.DataFrame(datos_grafico).drop_duplicates('fecha', keep='last').sort_values('fecha')
         df_grafico['fecha'] = pd.to_datetime(df_grafico['fecha'])
-        return saldo_actual, historial_texto, df_grafico
+        return saldo_total, historial_texto, df_grafico
 
 # --- CONEXIÓN A FIREBASE Y FUNCIONES DE LA DB (SIN CAMBIOS) ---
 def init_firestore():
-    """Inicializa la conexión con Firestore usando los secrets de Streamlit."""
     try:
         creds_dict = dict(st.secrets["firebase_credentials"])
         creds = credentials.Certificate(creds_dict)
@@ -72,7 +94,6 @@ def init_firestore():
     return firestore.client()
 
 def guardar_sesion(db, eventos):
-    """Guarda la lista de eventos en Firestore y devuelve el ID único."""
     if not db:
         st.error("No se puede guardar la sesión: conexión a la base de datos no disponible.")
         return None
@@ -90,12 +111,8 @@ def guardar_sesion(db, eventos):
         return None
 
 def cargar_sesion(db, sesion_id):
-    """Carga una lista de eventos desde Firestore usando un ID."""
-    if not db:
-        st.error("No se puede cargar la sesión: conexión a la base de datos no disponible.")
-        return None
-    if not sesion_id:
-        return None
+    if not db: return None
+    if not sesion_id: return None
     try:
         doc_ref = db.collection('sesiones').document(sesion_id)
         doc = doc_ref.get()
@@ -104,9 +121,6 @@ def cargar_sesion(db, sesion_id):
             for e in eventos_cargados:
                 e['Fecha'] = date.fromisoformat(e['Fecha'])
             return eventos_cargados
-        return None
-    except ValueError as e:
-        st.error(f"Error al cargar la sesión: formato de datos inválido ({e}).")
         return None
     except Exception as e:
         st.error(f"Error al cargar la sesión: {e}")
@@ -152,9 +166,6 @@ with col1:
 
     with st.container(border=True):
         st.header("2. 🗓️ Agregar Nuevo Evento")
-        
-        # --- CORRECCIÓN DE DISEÑO ---
-        # El selectbox se saca fuera del formulario para que la UI se actualice al instante.
         tipo_evento = st.selectbox("Tipo de Evento", ["Cambio de Tasa", "Transacción (Depósito/Extracción)"])
         
         with st.form("form_nuevo_evento", clear_on_submit=True):
@@ -166,7 +177,7 @@ with col1:
             if tipo_evento == "Cambio de Tasa":
                 valor_evento = st.number_input("Nueva Tasa Anual (ej: 0.40 para 40%)", min_value=0.0, value=0.40, step=0.01, format="%.2f")
                 tipo_interno = 'cambio_tasa'
-            else: # "Transacción (Depósito/Extracción)"
+            else: 
                 valor_evento = st.number_input("Monto de la Transacción ($)", value=0.0, step=10000.0, format="%.2f", help="Usa un valor positivo para depósitos y negativo para extracciones.")
                 tipo_interno = 'transaccion'
             
@@ -242,37 +253,46 @@ if st.button("🚀 Calcular y Graficar Simulación", type="primary", use_contain
 
         with st.container(border=True):
             st.header("📈 Resultados de la Simulación")
-            st.metric("Saldo Final Calculado", f"${saldo_final:,.2f}", f"${(saldo_final - capital_inicial):,.2f} de ganancia")
+            
+            # Métricas desglosadas
+            col_metrica1, col_metrica2, col_metrica3 = st.columns(3)
+            col_metrica1.metric("Saldo Final Calculado", f"${saldo_final:,.2f}")
+            col_metrica2.metric("Capital Aportado Neto", f"${df_grafico['capital_aportado'].iloc[-1]:,.2f}")
+            col_metrica3.metric("Intereses Ganados Totales", f"${df_grafico['interes_ganado'].iloc[-1]:,.2f}")
 
-            fig = px.line(df_grafico, x='fecha', y='saldo', title="Evolución del Saldo de la Inversión", template="plotly_dark")
-            fig.update_traces(hovertemplate='<b>%{x|%d %b %Y}</b><br>Saldo: $%{y:,.2f}')
+            # --- GRÁFICO MEJORADO CON DESGLOSE ---
+            fig = px.line(
+                df_grafico, 
+                x='fecha', 
+                y=['saldo_total', 'capital_aportado', 'interes_ganado'],
+                title="Evolución de la Inversión: Saldo vs Capital vs Intereses",
+                template="plotly_dark",
+                labels={'value': 'Monto en Pesos ($)', 'fecha': 'Línea de Tiempo', 'variable': 'Componente'},
+                color_discrete_map={
+                    'saldo_total': '#1f77b4',      # Azul
+                    'capital_aportado': '#ff7f0e', # Naranja
+                    'interes_ganado': '#2ca02c'     # Verde
+                }
+            )
             fig.update_layout(
-                xaxis_title="Línea de Tiempo",
-                yaxis_title="Saldo en Pesos ($)",
                 font=dict(family="Arial, sans-serif", size=12, color="white"),
                 plot_bgcolor='rgba(0,0,0,0.3)',
                 paper_bgcolor='rgba(0,0,0,0)'
             )
-            
-            for ev in st.session_state.eventos:
-                fecha_evento_dt = pd.to_datetime(ev['Fecha'])
-                if fecha_inicio <= ev['Fecha'] <= fecha_final and not df_grafico[df_grafico['fecha'] == fecha_evento_dt].empty:
-                    simbolo = "triangle-up-dot" if ev['_tipo_interno'] == 'transaccion' and ev['Valor'] > 0 else "triangle-down-dot"
-                    if ev['_tipo_interno'] == 'cambio_tasa': simbolo = "circle-dot"
-                    color = "lightgreen" if ev['_tipo_interno'] == 'transaccion' and ev['Valor'] > 0 else "salmon"
-                    if ev['_tipo_interno'] == 'cambio_tasa': color = "gold"
-                    saldo_en_fecha = df_grafico[df_grafico['fecha'] == fecha_evento_dt]['saldo'].iloc[0]
-                    fig.add_scatter(x=[ev['Fecha']], y=[saldo_en_fecha], mode='markers',
-                                    marker=dict(symbol=simbolo, color=color, size=12, line=dict(width=1.5, color='white')),
-                                    name=f"{ev['Tipo']}: {ev['Valor']}",
-                                    hovertemplate=f"<b>{ev['Fecha']:%d %b %Y}</b><br>{ev['Tipo']}<br>Valor: {ev['Valor']:,}")
-            
             st.plotly_chart(fig, use_container_width=True)
             
+            # --- NUEVO: MOSTRAR TABLA DE DATOS ---
+            with st.expander("Ver tabla de datos diarios del gráfico"):
+                # Formatear columnas para mejor lectura
+                df_display = df_grafico.copy()
+                for col in ['saldo_total', 'capital_aportado', 'interes_ganado']:
+                    df_display[col] = df_display[col].apply(lambda x: f"${x:,.2f}")
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
+
             with st.expander("Ver historial de cálculo detallado"):
                 st.text("\n".join(historial))
 
     except ValueError as e:
-        st.error(f"⚠️ **Error de Configuración:** {e} Por favor, agregá un evento de 'Cambio de Tasa' que cubra la 'Fecha de Inicio'.")
+        st.error(f"⚠️ **Error de Configuración:** {e}")
     except Exception as e:
         st.error(f"Ocurrió un error inesperado durante el cálculo: {e}")
