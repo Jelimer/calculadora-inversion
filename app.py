@@ -63,7 +63,8 @@ class CalculadoraInteresVariable:
 def init_firestore():
     """Inicializa la conexión con Firestore usando los secrets de Streamlit."""
     try:
-        creds_dict = st.secrets["firebase_credentials"]
+        # LA CORRECCIÓN ESTÁ AQUÍ: Convertimos explícitamente a un dict.
+        creds_dict = dict(st.secrets["firebase_credentials"])
         creds = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(creds)
     except Exception as e:
