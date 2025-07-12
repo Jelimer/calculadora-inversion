@@ -56,7 +56,9 @@ class CalculadoraInteresVariable:
                 historial_texto.append(f"[{fecha_actual}] Cambio Tasa: {tasa_actual:.2%}")
         df_grafico = pd.DataFrame(datos_grafico).drop_duplicates('fecha', keep='last').sort_values('fecha')
         df_grafico['fecha'] = pd.to_datetime(df_grafico['fecha'])
-        return saldo_final, historial_texto, df_grafico
+        # --- CORRECCIÓN DEL ERROR ---
+        # Se devuelve 'saldo_actual' que es la variable correcta, en lugar de 'saldo_final'.
+        return saldo_actual, historial_texto, df_grafico
 
 # --- CONEXIÓN A FIREBASE Y FUNCIONES DE LA DB (SIN CAMBIOS) ---
 def init_firestore():
@@ -118,7 +120,7 @@ db = init_firestore()
 # --- MEJORA DE DISEÑO: Configuración de la página ---
 st.set_page_config(
     page_title="Calculadora de Inversión",
-    page_icon="💰",
+    page_icon=" ",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -281,3 +283,4 @@ if st.button("🚀 Calcular y Graficar Simulación", type="primary", use_contain
         st.error(f"⚠️ **Error de Configuración:** {e} Por favor, agregá un evento de 'Cambio de Tasa' que cubra la 'Fecha de Inicio'.")
     except Exception as e:
         st.error(f"Ocurrió un error inesperado durante el cálculo: {e}")
+ 
