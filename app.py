@@ -117,7 +117,10 @@ if st.button("Calcular y Graficar", type="primary", use_container_width=True):
             "Rendimiento (%)": [rendimiento_pf_ars_pct, rendimiento_pf_usd_pct, rendimiento_dolar_ars_pct]
         }
         summary_df = pd.DataFrame(summary_data).set_index("Estrategia")
-        st.dataframe(summary_df.style.format({"Rendimiento (%)": "{:+.2%}"}).background_gradient(cmap='RdYlGn', subset=['Rendimiento (%)'], vmin=-0.05, vmax=0.05))
+        
+        # --- CORRECCIÓN ---
+        # Se elimina .background_gradient() para evitar el error de matplotlib.
+        st.dataframe(summary_df.style.format({"Rendimiento (%)": "{:+.2%}"}))
 
         # --- BOLETÍN DE CALIFICACIONES ---
         st.markdown("##### 📝 Boletín de Calificaciones")
