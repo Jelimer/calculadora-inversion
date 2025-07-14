@@ -5,21 +5,22 @@ from datetime import date, timedelta
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
-    page_title="Calculadora de Inversión por Períodos",
-    page_icon="📈",
+    page_title="Calculadora de Inversión por Filas",
+    page_icon="🧾",
     layout="wide",
 )
 
 # --- TÍTULO Y DESCRIPCIÓN ---
-st.title("📈 Calculadora de Inversión por Períodos")
-st.markdown("Simulá tus inversiones período por período, como en una hoja de cálculo.")
+st.title("🧾 Calculadora de Inversión por Filas")
+st.markdown("Simulá cada período de inversión de forma independiente, como en una hoja de cálculo.")
 
 # --- INICIALIZACIÓN DEL ESTADO ---
 if 'periodos' not in st.session_state:
-    # Creamos un DataFrame de ejemplo con la nueva estructura
+    # Creamos un DataFrame de ejemplo con la nueva estructura de capital por fila
     st.session_state.periodos = pd.DataFrame(
         [
             {
+                "Capital Inicial ($)": 1000000.0,
                 "Fecha Inicio": date(2024, 1, 1),
                 "Días de Inversión": 30,
                 "Depósito Adicional ($)": 0.0,
@@ -31,18 +32,8 @@ if 'periodos' not in st.session_state:
 
 # --- SECCIÓN DE ENTRADA DE DATOS ---
 with st.container(border=True):
-    st.header("1. 💵 Capital y Períodos de Inversión")
-    
-    capital_inicial = st.number_input(
-        "Capital Inicial ($)", 
-        min_value=0.0, 
-        value=1000000.0, 
-        step=50000.0, 
-        format="%.2f",
-        help="El monto con el que comenzás tu primera inversión."
-    )
-
-    st.markdown("##### Agregá, editá o eliminá los períodos de tu inversión directamente en la tabla:")
+    st.header("💵 Períodos de Inversión")
+    st.markdown("##### Agregá, editá o eliminá los períodos de tu inversión directamente en la tabla. Cada fila es un cálculo independiente.")
     
     # Editor de datos interactivo con la nueva estructura
     edited_df = st.data_editor(
@@ -50,6 +41,12 @@ with st.container(border=True):
         num_rows="dynamic",
         use_container_width=True,
         column_config={
+            "Capital Inicial ($)": st.column_config.NumberColumn(
+                "Capital Inicial ($)",
+                help="El monto con el que comienza este período específico.",
+                required=True,
+                format="$ %.2f",
+            ),
             "Fecha Inicio": st.column_config.DateColumn(
                 "Fecha de Inicio",
                 help="Fecha en que comienza este período de inversión.",
@@ -65,12 +62,12 @@ with st.container(border=True):
             ),
             "Depósito Adicional ($)": st.column_config.NumberColumn(
                 "Depósito Adicional ($)",
-                help="Dinero que agregás al inicio de este período.",
+                help="Dinero que agregás al capital inicial de este período.",
                 format="$ %.2f",
             ),
             "Extracción ($)": st.column_config.NumberColumn(
                 "Extracción ($)",
-                help="Dinero que retirás al inicio de este período.",
+                help="Dinero que retirás del capital inicial de este período.",
                 format="$ %.2f",
             ),
             "Tasa Anual (%)": st.column_config.NumberColumn(
@@ -85,111 +82,76 @@ with st.container(border=True):
 
 # --- BOTÓN DE CÁLCULO ---
 st.markdown("---")
-if st.button("🚀 Calcular y Graficar Simulación", type="primary", use_container_width=True):
+if st.button("🚀 Calcular Resultados", type="primary", use_container_width=True):
     
     df_periodos = st.session_state.periodos.copy()
     
     if df_periodos.isnull().values.any():
         st.error("⚠️ Hay celdas vacías en la tabla. Por favor, completá todos los datos.")
     else:
-        # --- LÓGICA DE CÁLCULO SECUENCIAL ---
-        df_periodos = df_periodos.sort_values(by="Fecha Inicio").reset_index(drop=True)
-        
-        datos_grafico = []
-        resumen_periodos = []
-        
-        saldo_periodo_anterior = capital_inicial
-        capital_aportado_acumulado = capital_inicial
-        interes_acumulado_total = 0.0
+        # --- LÓGICA DE CÁLCULO INDEPENDIENTE POR FILA ---
+        resultados = []
 
         for index, row in df_periodos.iterrows():
-            # El capital inicial de este período es el saldo final del anterior
-            capital_inicial_periodo = saldo_periodo_anterior
-            
-            # Aplicar depósitos y extracciones
-            capital_inicial_periodo += row["Depósito Adicional ($)"]
-            capital_inicial_periodo -= row["Extracción ($)"]
-            capital_aportado_acumulado += row["Depósito Adicional ($)"]
-            capital_aportado_acumulado -= row["Extracción ($)"]
-
-            saldo_actual = capital_inicial_periodo
-            interes_ganado_periodo = 0.0
-            
-            fecha_inicio_periodo = row["Fecha Inicio"]
+            # Tomar los datos de la fila actual
+            capital_inicial_fila = row["Capital Inicial ($)"]
             dias_inversion = int(row["Días de Inversión"])
             tasa_diaria = (row["Tasa Anual (%)"] / 100) / 365
-
-            # Registrar estado al inicio del período
-            datos_grafico.append({
-                "fecha": fecha_inicio_periodo, "saldo_total": saldo_actual,
-                "capital_aportado": capital_aportado_acumulado, "interes_ganado": interes_acumulado_total
-            })
+            
+            # Aplicar depósitos y extracciones al capital de la fila
+            capital_efectivo = capital_inicial_fila + row["Depósito Adicional ($)"] - row["Extracción ($)"]
+            
+            saldo_actual = capital_efectivo
+            interes_ganado_periodo = 0.0
 
             # Calcular interés compuesto diario
             for i in range(dias_inversion):
                 interes_diario = saldo_actual * tasa_diaria
-                interes_ganado_periodo += interes_diario
                 saldo_actual += interes_diario
-                
-                fecha_diaria = fecha_inicio_periodo + timedelta(days=i + 1)
-                datos_grafico.append({
-                    "fecha": fecha_diaria, "saldo_total": saldo_actual,
-                    "capital_aportado": capital_aportado_acumulado, "interes_ganado": interes_acumulado_total + interes_ganado_periodo
-                })
-
-            interes_acumulado_total += interes_ganado_periodo
-            fecha_fin_periodo = fecha_inicio_periodo + timedelta(days=dias_inversion)
             
-            # Guardar resumen del período
-            resumen_periodos.append({
-                "Período": index + 1,
-                "Fecha Inicio": fecha_inicio_periodo,
-                "Fecha Fin": fecha_fin_periodo,
-                "Capital Inicial Período": capital_inicial_periodo,
-                "Interés Ganado Período": interes_ganado_periodo,
-                "Saldo Final Período": saldo_actual
+            interes_ganado_periodo = saldo_actual - capital_efectivo
+            
+            # Guardar el resultado de la fila
+            resultados.append({
+                "Capital Inicial ($)": capital_inicial_fila,
+                "Depósito Adicional ($)": row["Depósito Adicional ($)"],
+                "Extracción ($)": row["Extracción ($)"],
+                "Capital Invertido ($)": capital_efectivo,
+                "Días de Inversión": dias_inversion,
+                "Tasa Anual (%)": row["Tasa Anual (%)"],
+                "Interés Ganado ($)": interes_ganado_periodo,
+                "Saldo Final ($)": saldo_actual
             })
-            
-            saldo_periodo_anterior = saldo_actual
 
         # --- MOSTRAR RESULTADOS ---
-        if datos_grafico:
-            df_grafico = pd.DataFrame(datos_grafico).drop_duplicates(subset='fecha', keep='last').sort_values(by='fecha')
-            df_resumen = pd.DataFrame(resumen_periodos)
+        if resultados:
+            df_resultados = pd.DataFrame(resultados)
 
             with st.container(border=True):
                 st.header("📊 Resultados de la Simulación")
                 
-                # Métricas generales
-                col_metrica1, col_metrica2, col_metrica3 = st.columns(3)
-                col_metrica1.metric("Saldo Final Calculado", f"${saldo_periodo_anterior:,.2f}")
-                col_metrica2.metric("Capital Aportado Neto", f"${capital_aportado_acumulado:,.2f}")
-                col_metrica3.metric("Intereses Ganados Totales", f"${interes_acumulado_total:,.2f}")
+                # Formatear columnas para mejor visualización
+                df_display = df_resultados.copy()
+                columnas_dinero = [
+                    "Capital Inicial ($)", "Depósito Adicional ($)", "Extracción ($)",
+                    "Capital Invertido ($)", "Interés Ganado ($)", "Saldo Final ($)"
+                ]
+                for col in columnas_dinero:
+                    df_display[col] = df_display[col].apply(lambda x: f"${x:,.2f}")
                 
-                # --- NUEVA TABLA DE RESUMEN POR PERÍODO ---
-                st.markdown("##### Resumen por Período")
-                df_display_resumen = df_resumen.copy()
-                for col in ["Capital Inicial Período", "Interés Ganado Período", "Saldo Final Período"]:
-                    df_display_resumen[col] = df_display_resumen[col].apply(lambda x: f"${x:,.2f}")
-                st.dataframe(df_display_resumen, use_container_width=True, hide_index=True)
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
 
+                # Métricas totales
+                st.markdown("---")
+                st.markdown("##### Totales de la Simulación")
+                total_interes = df_resultados["Interés Ganado ($)"].sum()
+                total_depositos = df_resultados["Depósito Adicional ($)"].sum()
+                total_extracciones = df_resultados["Extracción ($)"].sum()
 
-                # Gráfico de evolución diaria
-                st.markdown("##### Evolución Diaria de la Inversión")
-                fig = px.line(
-                    df_grafico, x='fecha', y=['saldo_total', 'capital_aportado', 'interes_ganado'],
-                    template="plotly_dark",
-                    labels={'value': 'Monto ($)', 'fecha': 'Fecha', 'variable': 'Componente'},
-                    color_discrete_map={
-                        'saldo_total': '#1f77b4', 'capital_aportado': '#ff7f0e', 'interes_ganado': '#2ca02c'
-                    }
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                with st.expander("Ver tabla de datos diarios detallados"):
-                    df_display_grafico = df_grafico.copy()
-                    for col in ['saldo_total', 'capital_aportado', 'interes_ganado']:
-                        df_display_grafico[col] = df_display_grafico[col].apply(lambda x: f"${x:,.2f}")
-                    st.dataframe(df_display_grafico, use_container_width=True, hide_index=True)
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Intereses Ganados", f"${total_interes:,.2f}")
+                col2.metric("Total Depósitos", f"${total_depositos:,.2f}")
+                col3.metric("Total Extracciones", f"${total_extracciones:,.2f}")
+
         else:
             st.warning("No hay datos para calcular. Agregá al menos un período.")
