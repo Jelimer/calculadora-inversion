@@ -118,7 +118,6 @@ if st.button("Calcular y Graficar", type="primary", use_container_width=True):
         }
         summary_df = pd.DataFrame(summary_data).set_index("Estrategia")
         
-        # --- CORRECCIÓN ---
         # Se elimina .background_gradient() para evitar el error de matplotlib.
         st.dataframe(summary_df.style.format({"Rendimiento (%)": "{:+.2%}"}))
 
@@ -195,7 +194,7 @@ if st.button("Calcular y Graficar", type="primary", use_container_width=True):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- SECCIÓN DE DESCARGA ---
+        # --- SECCIÓN DE DESCARGA (CORREGIDA) ---
         st.markdown("---")
         st.markdown("##### 📥 Descargar Resultados")
         
@@ -209,23 +208,12 @@ if st.button("Calcular y Graficar", type="primary", use_container_width=True):
         reporte_texto.append(f"Tasas TNA aplicadas (%): {[f'{t:.2f}' for t in tasas_efectuadas]}\n")
         reporte_final_str = "\n".join(reporte_texto)
 
-        # Preparar imagen para descarga
-        img_bytes = fig.to_image(format="png", width=1200, height=700, scale=2)
-
-        col_desc1, col_desc2 = st.columns(2)
-        with col_desc1:
-            st.download_button(
-                label="Descargar Gráfico (.png)",
-                data=img_bytes,
-                file_name="reporte_grafico.png",
-                mime="image/png",
-                use_container_width=True
-            )
-        with col_desc2:
-            st.download_button(
-                label="Descargar Reporte (.txt)",
-                data=reporte_final_str,
-                file_name="reporte_texto.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
+        # Se elimina la descarga del gráfico para evitar el error de dependencia.
+        # El usuario puede hacer clic derecho en el gráfico para guardarlo.
+        st.download_button(
+            label="Descargar Reporte (.txt)",
+            data=reporte_final_str,
+            file_name="reporte_texto.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
